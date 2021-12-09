@@ -1,0 +1,19 @@
+{
+  "name": "figmp",
+  "version": "1.0.0",
+  "description": "Slack bot for trading sc figurines",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc -p . && rsync -rvzP -e \"ssh -p 7822 -i ~/.ssh/id_ed25519.pub\" --delete ./out root@misguided.enterprises:figmp",
+    "watch": "nodemon -w ./src/ --exec \"npm run build\" --ext ts,json"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.7"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.8.1",
+    "ts-custom-error": "^3.2.0"
+  },
+  "author": "Cedric Hutchings",
+  "license": "ISC"
+}
