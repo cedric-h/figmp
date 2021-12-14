@@ -60,9 +60,9 @@ const ids = {
   cia: "C02PS3FE8LX",
 } as const;
 
-const helpText = `:yay: figmp is a place to buy, sell, and approximate the value of digital hack club figurines in terms of the community run currency sc :sc:
+const helpText = `_:yay: figmp is a place to buy, sell, and approximate the value of digital hack club figurines in terms of the community run currency sc :sc:_
 
-\`/figmp faq\` - run this command to learn about why figs are cool and how figmp works
+\`/figmp faq\` - *run this command to learn about why figs are cool and how figmp works*
 \`/figmp shop\` - see the cheapest and most sought after figurines
 \`/figmp shop FIG\` - see how much people are buying and selling FIG for, or even buy/sell FIG
 `;
@@ -169,10 +169,10 @@ const figShopFrontPage = () => {
   const blocks: any = [];
   let text = "";
   text += ":yay: *Welcome to figmp* :yay:";
-  const entries = [...market.entries()];
-  const sells = entries.map(([fig, m]) => m.sells.map(s => [fig, s] as const)).flat();
-  const buys = entries.map(([fig, m]) => m.buys.map(b => [fig, b] as const)).flat();
-  const hist = entries.map(([fig, m]) => m.hist.map(h => [fig, h] as const)).flat();
+  const m = market;
+  const sells = [...m.entries()].map(([fig, m]) => m.sells.map(s => [fig, s] as const)).flat();
+  const buys = [...m.entries()].map(([fig, m]) => m.buys.map(b => [fig, b] as const)).flat();
+  const hist = [...m.entries()].map(([fig, m]) => m.hist.map(h => [fig, h] as const)).flat();
   
   const allDemanded = ppcents(sum(sells.map(([, s]) => s.demandsCents)));
   const allOffered = ppcents(sum(buys.map(([, b]) => b.offersCents)));
@@ -183,6 +183,7 @@ const figShopFrontPage = () => {
   text += '\n';
 
   if (sells.length) {
+    const entries = [...m.entries()].filter(x => x[1].sells.length);
     const lowestPrice = (m: Sell[]) => Math.min(...m.map(x => x.demandsCents));
     entries.sort(([, {sells: a}], [, {sells: b}]) => lowestPrice(a) - lowestPrice(b));
     text += "\nSome of the cheapest figs up for sale include: " +
@@ -195,6 +196,7 @@ const figShopFrontPage = () => {
   }
 
   if (buys.length) {
+    const entries = [...m.entries()].filter(x => x[1].buys.length);
     const highestOffer = (m: Buy[]) => Math.max(...m.map(x => x.offersCents));
     entries.sort(([, {buys: a}], [, {buys: b}]) => highestOffer(b) - highestOffer(a));
     text += "\nUsers are offering the most for these figs: " +
@@ -207,6 +209,7 @@ const figShopFrontPage = () => {
   }
 
   if (hist.length) {
+    const entries = [...m.entries()].filter(x => x[1].hist.length);
     text += "\n";
     entries.sort(([, {hist: a}], [, {hist: b}]) => hist.length - hist.length);
     text += "\nHistorically, these figs have been frequent fliers: " +
@@ -223,6 +226,10 @@ const figShopFrontPage = () => {
 
 const receiver = new ExpressReceiver({ signingSecret});
 const app = new App({ token: token.bot, receiver });
+
+const dm = (user: string, text: string) => {
+  app.client.chat.postMessage({ channel: stripId(user)!, text });
+};
 
 (() => {
   type exRequest = express.Request;
@@ -300,11 +307,22 @@ const app = new App({ token: token.bot, receiver });
             fig,
           });
           const [{madeOn, seller, demandsCents}] = sells.splice(0, 1);
+          const ppdemandsCents = ppcents(demandsCents);
+          const cedsCut = Math.ceil(demandsCents * 0.01);
           await sendScales("pay", {
             "receiverId": seller,
-            "cents": demandsCents,
+            "cents": demandsCents - cedsCut,
             "for": ppfig(fig),
           });
+          await sendScales("pay", {
+            "receiverId": `<@${ids.ced}>`,
+            "cents": cedsCut,
+            "for": `${senderId} bought ${ppfig(fig)} from ${seller} for ${ppdemandsCents}`,
+          });
+          dm(
+            seller,
+            `Your ${ppfig(fig)} was bought by ${senderId} for ${ppdemandsCents}!`
+          );
           hist.push({
             buyer: senderId,
             seller,
@@ -329,11 +347,11 @@ const app = new App({ token: token.bot, receiver });
           madeOn: Date.now(),
           hookId,
         });
-        app.client.chat.postMessage({
-          channel: stripId(senderId)!,
-          text: `Your buy order to purchase a ${ppfig(fig)} at ${ppcents(cents)} is now up!` +
+        dm(
+          senderId,
+          `Your buy order to purchase a ${ppfig(fig)} at ${ppcents(cents)} is now up!` +
             "\nYou can manage it through `/sc bal`."
-        });
+        );
       } break;
       case "receivedFig": {
         const { fig, "from": senderId, "for": sellFor } = req.body;
@@ -356,17 +374,27 @@ const app = new App({ token: token.bot, receiver });
          * less than or equal to what the most generous buy order offers */
         if (buys.length && cents <= buys[0].offersCents) {
           await sendScales("pullhook", { hookId: buys[0].hookId });
+          const cedsCut = Math.ceil(buys[0].offersCents * 0.01);
           await sendScales("pay", {
             "receiverId": senderId,
-            "cents": buys[0].offersCents,
+            "cents": buys[0].offersCents - cedsCut,
             "for": ppfig(fig),
           });
           const [{madeOn, buyer, offersCents}] = buys.splice(0, 1);
+          await sendScales("pay", {
+            "receiverId": `<@${ids.ced}>`,
+            "cents": cedsCut,
+            "for": `${senderId} sold ${ppfig(fig)} to ${buyer} for ${ppcents(offersCents)}`,
+          });
           await sendScales("givefig", {
             "receiverId": buyer,
             "fig": fig,
             "for": offersCents,
           });
+          dm(
+            buyer,
+            `${senderId} sold you a ${ppfig(fig)} for ${ppcents(offersCents)}!`
+          );
           hist.push({
             buyer,
             seller: senderId,
